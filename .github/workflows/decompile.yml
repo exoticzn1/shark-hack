@@ -1,10 +1,9 @@
-name: Decompile SharkMod
+name: Extract Agar Bot Logic
 on:
   push:
     branches:
-      - main  # This makes it run automatically when you upload the dylib
-  workflow_dispatch: # Keeps the manual button too
-
+      - main
+  workflow_dispatch:
 
 jobs:
   analyze:
@@ -16,27 +15,28 @@ jobs:
       - name: Install Analysis Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils-multiarch radix2 
-          # Download a faster decompiler for mobile dylibs
+          # Fixed the package name to radare2
+          sudo apt-get install -y binutils-multiarch radare2 
+          
+          # Download RetDec
           wget https://github.com/avast/retdec/releases/download/v5.0/retdec-v5.0-ubuntu-64bit.tar.xz
           tar -xf retdec-v5.0-ubuntu-64bit.tar.xz
 
-      - name: Scan for Bot Protocols
+      - name: Quick Scan (Strings & Symbols)
         run: |
           mkdir -p results
-          # Look for WebSocket (ws:// or wss://) and Agar-specific strings
-          strings binaries/sharkmod.dylib | grep -E "ws://|wss://|bot|spawn|client" > results/network_strings.txt
-          
-          # Look for common Agar.io packet headers (often hex values)
-          nm -gU binaries/sharkmod.dylib > results/symbols.txt
+          # This finds URLs, IPs, and Bot Commands
+          strings binaries/sharkmod.dylib | grep -Ei "ws|http|bot|spawn|client|packet|agario" > results/interesting_strings.txt
+          # This finds function names
+          nm -gU binaries/sharkmod.dylib > results/function_names.txt || true
 
       - name: Deep Decompile
         run: |
-          # Targeting the C++ logic specifically
-          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output results/bot_logic.c --cleanup
+          # The '|| true' ensures the workflow finishes even if the decompiler hits a small error
+          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output results/bot_logic.c --cleanup || true
 
-      - name: Upload Bot Source
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: SharkMod-Bot-Source
+          name: SharkMod-Source
           path: results/
