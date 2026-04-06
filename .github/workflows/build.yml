@@ -1,35 +1,39 @@
-name: Decompile SharkMod
+
+name: Extract Agar Bot Logic
 on:
-  workflow_dispatch: # Allows you to start it manually from your iPad
+  workflow_dispatch:
 
 jobs:
-  build:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Decompiler Tools
+      - name: Install Analysis Tools
         run: |
           sudo apt-get update
-          # installing binutils and strings for basic analysis
-          sudo apt-get install -y binutils-multiarch
-          # download a standalone decompiler (RetDec)
+          sudo apt-get install -y binutils-multiarch radix2 
+          # Download a faster decompiler for mobile dylibs
           wget https://github.com/avast/retdec/releases/download/v5.0/retdec-v5.0-ubuntu-64bit.tar.xz
           tar -xf retdec-v5.0-ubuntu-64bit.tar.xz
 
-      - name: Extract Strings (Quick Look)
-        run: strings binaries/sharkmod.dylib > strings_output.txt
-
-      - name: Decompile to C code
+      - name: Scan for Bot Protocols
         run: |
-          # This will take a few minutes
-          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output shark_code.c || true
+          mkdir -p results
+          # Look for WebSocket (ws:// or wss://) and Agar-specific strings
+          strings binaries/sharkmod.dylib | grep -E "ws://|wss://|bot|spawn|client" > results/network_strings.txt
+          
+          # Look for common Agar.io packet headers (often hex values)
+          nm -gU binaries/sharkmod.dylib > results/symbols.txt
 
-      - name: Upload Results
+      - name: Deep Decompile
+        run: |
+          # Targeting the C++ logic specifically
+          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output results/bot_logic.c --cleanup
+
+      - name: Upload Bot Source
         uses: actions/upload-artifact@v4
         with:
-          name: shark-source-code
-          path: |
-            shark_code.c
-            strings_output.txt
+          name: SharkMod-Bot-Source
+          path: results/
