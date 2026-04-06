@@ -1,7 +1,10 @@
-
-name: Extract Agar Bot Logic
+name: Decompile SharkMod
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main  # This makes it run automatically when you upload the dylib
+  workflow_dispatch: # Keeps the manual button too
+
 
 jobs:
   analyze:
