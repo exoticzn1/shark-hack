@@ -1,0 +1,35 @@
+name: Decompile SharkMod
+on:
+  workflow_dispatch: # Allows you to start it manually from your iPad
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Decompiler Tools
+        run: |
+          sudo apt-get update
+          # installing binutils and strings for basic analysis
+          sudo apt-get install -y binutils-multiarch
+          # download a standalone decompiler (RetDec)
+          wget https://github.com/avast/retdec/releases/download/v5.0/retdec-v5.0-ubuntu-64bit.tar.xz
+          tar -xf retdec-v5.0-ubuntu-64bit.tar.xz
+
+      - name: Extract Strings (Quick Look)
+        run: strings binaries/sharkmod.dylib > strings_output.txt
+
+      - name: Decompile to C code
+        run: |
+          # This will take a few minutes
+          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output shark_code.c || true
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: shark-source-code
+          path: |
+            shark_code.c
+            strings_output.txt
