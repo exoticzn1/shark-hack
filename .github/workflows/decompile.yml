@@ -1,5 +1,8 @@
-name: SharkMod Deobfuscate
-on: [push]
+name: SharkMod Bot & Auth Hijack
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   analyze:
@@ -8,26 +11,41 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Tools
+      - name: Setup RE Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y radare2 binutils
-          pip install r2pipe
+          sudo apt-get install -y radare2 binutils-multiarch c++filt
 
-      - name: Extract Strings & Symbols
+      - name: Deep Analysis & Auth Hunt
         run: |
-          # This pulls all URLs and potential Keys from the binary
-          strings sharkmod.dylib | grep -E "http|https|ws|SK-|Bearer" > extracted_secrets.txt
+          mkdir -p results
+          TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
           
-      - name: Find Auth Bypass Point
-        run: |
-          # We search for where the 'Invalid Key' logic lives
-          r2 -qc "/c invalid key" sharkmod.dylib > bypass_locations.txt
+          # 1. Full String Dump (Search for the rejection message)
+          strings "$TARGET" > results/strings_full.txt
+          
+          # 2. Hunt for the Auth Endpoint and Logic
+          # We search for "verify", "auth", "key", and "Bearer"
+          grep -Ei "verify|auth|key|Bearer|token|success|failed|invalid" results/strings_full.txt > results/auth_logic_leaks.txt || true
+          
+          # 3. Protocol v26 Packet Hunting
+          # We look for the raw hex codes for Agar.io Mobile v26 Packets
+          # Packet 16 (Move), 21 (Split/Mass), 10 (Spawn)
+          nm -gU "$TARGET" | grep -Ei "packet|send|socket|connect" > results/packet_methods.txt || true
 
-      - name: Upload Results
-        uses: actions/apps/upload-artifact@v4
+          # 4. Radare2 Auto-Analysis (Finding the "Key Check" Function)
+          # 'aa' analyzes, 'afl' lists functions, 'iz' looks for strings in data sections
+          r2 -qc "aa; afl; iz" "$TARGET" > results/r2_function_map.txt || true
+
+      - name: Extract Key Obfuscation
+        run: |
+          TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
+          # This looks for the code that might be "salting" your key
+          # It searches for math operations near where "key" is mentioned
+          r2 -qc "aa; /c key; pd 20" "$TARGET" > results/key_processing_code.txt || true
+
+      - name: Upload Analysis to iPad
+        uses: actions/upload-artifact@v4
         with:
-          name: Shark-Analysis
-          path: |
-            extracted_secrets.txt
-            bypass_locations.txt
+          name: Shark-Hijack-Data
+          path: results/
