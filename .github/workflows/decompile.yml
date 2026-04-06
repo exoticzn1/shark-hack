@@ -9,34 +9,39 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Analysis Tools
+      - name: Setup Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y binutils-multiarch radare2 binutils
 
-      - name: Quick Scan (Strings & Symbols)
+      - name: Identify and Extract
         run: |
           mkdir -p results
-          # Extract readable text (IPs, URLs, Bot Commands)
-          strings binaries/sharkmod.dylib > results/all_strings.txt
-          grep -Ei "ws|http|bot|spawn|client|packet|agario|port" results/all_strings.txt > results/filtered_strings.txt
+          # This finds your sharkmod.dylib in the main folder automatically
+          TARGET_FILE=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
+          echo "Found file: $TARGET_FILE"
           
-          # Get the function names and "demangle" them (make them readable)
-          nm -gU binaries/sharkmod.dylib | c++filt > results/readable_functions.txt || true
+          # 1. Get all text (IPs, URLs, Bot Commands)
+          strings "$TARGET_FILE" > results/all_strings.txt
+          
+          # 2. Specifically hunt for Agar.io mobile server/bot info
+          grep -Ei "ws|wss|http|bot|spawn|client|packet|agario|port|154.21" results/all_strings.txt > results/filtered_bot_info.txt || true
+          
+          # 3. Get function names (What the bots actually do)
+          nm -gU "$TARGET_FILE" | c++filt > results/functions.txt || true
 
-      - name: Disassemble Logic (The Code)
+      - name: Hex Scan for Packets
         run: |
-          # This converts the binary into Assembly code which we can read
-          objdump -dC binaries/sharkmod.dylib > results/disassembly.txt || true
-          
-          # Use Radare2 to look for specific bot "offsets"
-          r2 -qc "aa; afl" binaries/sharkmod.dylib > results/function_list.txt
+          TARGET_FILE=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
+          # Agar.io packet 16 (Move) and 21 (Split) are key. 
+          # This tells Radare2 to list all function names it can find.
+          r2 -qc "aa; afl" "$TARGET_FILE" > results/function_list.txt || true
 
-      - name: Upload Results
+      - name: Save Results to iPad
         uses: actions/upload-artifact@v4
         with:
-          name: SharkMod-Analysis
+          name: SharkMod-Bot-Data
           path: results/
