@@ -1,51 +1,45 @@
-name: SharkMod Bot & Auth Hijack
+name: SharkMod Ultimate Hijack & Patch
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  analyze:
+  patch-and-deobfuscate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup RE Tools
+      - name: Install Reversing Suite
         run: |
           sudo apt-get update
-          sudo apt-get install -y radare2 binutils-multiarch c++filt
+          sudo apt-get install -y radare2 binutils-multiarch
 
-      - name: Deep Analysis & Auth Hunt
+      - name: Locate and De-obfuscate
         run: |
-          mkdir -p results
+          mkdir -p patched_results
           TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
           
-          # 1. Full String Dump (Search for the rejection message)
-          strings "$TARGET" > results/strings_full.txt
-          
-          # 2. Hunt for the Auth Endpoint and Logic
-          # We search for "verify", "auth", "key", and "Bearer"
-          grep -Ei "verify|auth|key|Bearer|token|success|failed|invalid" results/strings_full.txt > results/auth_logic_leaks.txt || true
-          
-          # 3. Protocol v26 Packet Hunting
-          # We look for the raw hex codes for Agar.io Mobile v26 Packets
-          # Packet 16 (Move), 21 (Split/Mass), 10 (Spawn)
-          nm -gU "$TARGET" | grep -Ei "packet|send|socket|connect" > results/packet_methods.txt || true
+          # 1. Identify the 'Key Check' function
+          # We look for the 'Invalid Key' string and find the code that jumps there
+          echo "Finding jump points..."
+          r2 -qc "/c invalid key" "$TARGET" > patched_results/offsets.txt
 
-          # 4. Radare2 Auto-Analysis (Finding the "Key Check" Function)
-          # 'aa' analyzes, 'afl' lists functions, 'iz' looks for strings in data sections
-          r2 -qc "aa; afl; iz" "$TARGET" > results/r2_function_map.txt || true
+          # 2. THE BYPASS (The Patch)
+          # We are looking for 'tbz' (test bit and branch) or 'cbz' (compare and branch zero)
+          # We will overwrite the 'Failure' jump with a 'NOP' (No Operation) or a 'B' (Branch Always)
+          # This forces 'handleAuthResponse' to always return 1 (True)
+          r2 -wqc "aa; /c handleAuthResponse; s sym._handleAuthResponse; wa mov w0, 1; wa ret" "$TARGET" || echo "Manual patch required"
 
-      - name: Extract Key Obfuscation
-        run: |
-          TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
-          # This looks for the code that might be "salting" your key
-          # It searches for math operations near where "key" is mentioned
-          r2 -qc "aa; /c key; pd 20" "$TARGET" > results/key_processing_code.txt || true
+          # 3. Extract the 'Salt' and 'IV' for the Python script
+          # This looks for 16-byte or 32-byte hex strings used for AES
+          strings -n 16 "$TARGET" | grep -vE "[a-zA-Z0-9]{32}" > patched_results/potential_salts.txt
 
-      - name: Upload Analysis to iPad
+      - name: Export Patched Dylib
         uses: actions/upload-artifact@v4
         with:
-          name: Shark-Hijack-Data
-          path: results/
+          name: Patched-Shark-Mod
+          path: |
+            *.dylib
+            patched_results/
