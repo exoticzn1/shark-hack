@@ -15,28 +15,28 @@ jobs:
       - name: Install Analysis Tools
         run: |
           sudo apt-get update
-          # Fixed the package name to radare2
-          sudo apt-get install -y binutils-multiarch radare2 
-          
-          # Download RetDec
-          wget https://github.com/avast/retdec/releases/download/v5.0/retdec-v5.0-ubuntu-64bit.tar.xz
-          tar -xf retdec-v5.0-ubuntu-64bit.tar.xz
+          sudo apt-get install -y binutils-multiarch radare2 binutils
 
       - name: Quick Scan (Strings & Symbols)
         run: |
           mkdir -p results
-          # This finds URLs, IPs, and Bot Commands
-          strings binaries/sharkmod.dylib | grep -Ei "ws|http|bot|spawn|client|packet|agario" > results/interesting_strings.txt
-          # This finds function names
-          nm -gU binaries/sharkmod.dylib > results/function_names.txt || true
+          # Extract readable text (IPs, URLs, Bot Commands)
+          strings binaries/sharkmod.dylib > results/all_strings.txt
+          grep -Ei "ws|http|bot|spawn|client|packet|agario|port" results/all_strings.txt > results/filtered_strings.txt
+          
+          # Get the function names and "demangle" them (make them readable)
+          nm -gU binaries/sharkmod.dylib | c++filt > results/readable_functions.txt || true
 
-      - name: Deep Decompile
+      - name: Disassemble Logic (The Code)
         run: |
-          # The '|| true' ensures the workflow finishes even if the decompiler hits a small error
-          ./retdec/bin/retdec-decompiler binaries/sharkmod.dylib --output results/bot_logic.c --cleanup || true
+          # This converts the binary into Assembly code which we can read
+          objdump -dC binaries/sharkmod.dylib > results/disassembly.txt || true
+          
+          # Use Radare2 to look for specific bot "offsets"
+          r2 -qc "aa; afl" binaries/sharkmod.dylib > results/function_list.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: SharkMod-Source
+          name: SharkMod-Analysis
           path: results/
