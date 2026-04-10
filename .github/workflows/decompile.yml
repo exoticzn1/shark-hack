@@ -1,45 +1,32 @@
-name: SharkMod Ultimate Hijack & Patch
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+name: Full Code Extraction
+on: [push, workflow_dispatch]
 
 jobs:
-  patch-and-deobfuscate:
+  decompile:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Reversing Suite
+      - name: Install Ghidra Headless
         run: |
           sudo apt-get update
-          sudo apt-get install -y radare2 binutils-multiarch
+          sudo apt-get install -y ghidra radare2
 
-      - name: Locate and De-obfuscate
+      - name: Decompile to C
         run: |
-          mkdir -p patched_results
+          mkdir -p source_code
           TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
           
-          # 1. Identify the 'Key Check' function
-          # We look for the 'Invalid Key' string and find the code that jumps there
-          echo "Finding jump points..."
-          r2 -qc "/c invalid key" "$TARGET" > patched_results/offsets.txt
+          # Use Radare2's Ghidra plugin to dump the pseudo-code
+          # This will try to recreate the 'main' logic and bot functions
+          r2 -qc "aa; pdg" "$TARGET" > source_code/decompiled_logic.c || true
+          
+          # Also dump the 'Pseudo-C' of the auth functions specifically
+          r2 -qc "aa; s sym._handleAuthResponse; pdg" "$TARGET" > source_code/auth_logic.c || true
 
-          # 2. THE BYPASS (The Patch)
-          # We are looking for 'tbz' (test bit and branch) or 'cbz' (compare and branch zero)
-          # We will overwrite the 'Failure' jump with a 'NOP' (No Operation) or a 'B' (Branch Always)
-          # This forces 'handleAuthResponse' to always return 1 (True)
-          r2 -wqc "aa; /c handleAuthResponse; s sym._handleAuthResponse; wa mov w0, 1; wa ret" "$TARGET" || echo "Manual patch required"
-
-          # 3. Extract the 'Salt' and 'IV' for the Python script
-          # This looks for 16-byte or 32-byte hex strings used for AES
-          strings -n 16 "$TARGET" | grep -vE "[a-zA-Z0-9]{32}" > patched_results/potential_salts.txt
-
-      - name: Export Patched Dylib
+      - name: Upload Source
         uses: actions/upload-artifact@v4
         with:
-          name: Patched-Shark-Mod
-          path: |
-            *.dylib
-            patched_results/
+          name: SharkMod-Source-Code
+          path: source_code/
