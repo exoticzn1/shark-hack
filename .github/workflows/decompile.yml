@@ -1,36 +1,37 @@
-name: Full Code Extraction
+name: Full Logic & Security Bypass
 on: [push, workflow_dispatch]
 
 jobs:
-  decompile:
+  extract:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Radare2 & Decompiler
-# We use a specific ppa to get the decompiler plugin included
-        run: |
-          sudo add-apt-repository ppa:radare2/ppa -y
-          sudo apt-get update
-          sudo apt-get install -y radare2
-          r2pm init
-          r2pm -i r2ghidra
+      - name: Install Radare2
+        run: sudo apt-get update && sudo apt-get install -y radare2
 
-      - name: Decompile Entire Dylib
+      - name: Deconstruct Dylib
         run: |
-          mkdir -p source_code
+          mkdir -p output
           TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
           
-          # 'pdg' is the command for the Ghidra decompiler inside Radare2
-          # We tell it to analyze (aa) then dump the decompiler output
-          r2 -qc "aa; pdg" "$TARGET" > source_code/full_decompiled_logic.c || true
+          # 1. Generate the 'Pseudo-Code' (The closest to 'Full Code' we can get)
+          # 'aa' analyzes, 'pD' decompiles the entire text section
+          r2 -qc "aa; pD $$(r2 -qc 'i~[2]' $TARGET)" "$TARGET" > output/logic_flow.c || true
           
-          # Grab all strings one more time just for reference
-          strings "$TARGET" > source_code/all_strings.txt
+          # 2. Extract every hidden URL and IP in one clean list
+          strings "$TARGET" | grep -Ei "http|https|ws|wss|57\.|154\." > output/endpoints.txt || true
+          
+          # 3. Find the exact 'Auth' check bypass point
+          # This looks for the 'Invalid Key' string and shows the code around it
+          r2 -qc "aa; /c invalid; pD 50 @ \` /c invalid \` " "$TARGET" > output/auth_bypass_check.txt || true
 
-      - name: Upload Source
+          # 4. Map the entire function list (The 'Blueprint')
+          r2 -qc "aa; afl" "$TARGET" > output/function_map.txt || true
+
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: SharkMod-Source-Code
-          path: source_code/
+          name: Shark-Full-Source
+          path: output/
