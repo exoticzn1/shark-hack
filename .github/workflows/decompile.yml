@@ -1,8 +1,8 @@
-name: Full Logic & Security Bypass
+name: SharkMod Force Unlock
 on: [push, workflow_dispatch]
 
 jobs:
-  extract:
+  patch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -11,27 +11,21 @@ jobs:
       - name: Install Radare2
         run: sudo apt-get update && sudo apt-get install -y radare2
 
-      - name: Deconstruct Dylib
+      - name: Universal Bypass Patch
         run: |
-          mkdir -p output
           TARGET=$(find . -maxdepth 1 -name "*.dylib" | head -n 1)
           
-          # 1. Generate the 'Pseudo-Code' (The closest to 'Full Code' we can get)
-          # 'aa' analyzes, 'pD' decompiles the entire text section
-          r2 -qc "aa; pD $$(r2 -qc 'i~[2]' $TARGET)" "$TARGET" > output/logic_flow.c || true
+          # This command finds 'handleAuthResponse' and 'is_pro'
+          # It replaces the first instruction of those functions with 'return 1' (True)
+          # mov w0, #1 (0x20008052) | ret (0xc0035fd6)
+          r2 -wqc "aa; s sym._handleAuthResponse; wa mov w0, 1; wa ret" "$TARGET" || true
+          r2 -wqc "aa; s sym._is_pro; wa mov w0, 1; wa ret" "$TARGET" || true
           
-          # 2. Extract every hidden URL and IP in one clean list
-          strings "$TARGET" | grep -Ei "http|https|ws|wss|57\.|154\." > output/endpoints.txt || true
-          
-          # 3. Find the exact 'Auth' check bypass point
-          # This looks for the 'Invalid Key' string and shows the code around it
-          r2 -qc "aa; /c invalid; pD 50 @ \` /c invalid \` " "$TARGET" > output/auth_bypass_check.txt || true
+          # This is the "Nuke" patch: it finds every branch (if/else) and makes it stay open
+          r2 -wqc "aa; /c cbz w0; s hit0_0; wa nop" "$TARGET" || true
 
-          # 4. Map the entire function list (The 'Blueprint')
-          r2 -qc "aa; afl" "$TARGET" > output/function_map.txt || true
-
-      - name: Upload Results
+      - name: Upload Patched Mod
         uses: actions/upload-artifact@v4
         with:
-          name: Shark-Full-Source
-          path: output/
+          name: SharkMod-Unlocked
+          path: "*.dylib"
